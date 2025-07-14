@@ -23,7 +23,7 @@ All credit for the core library goes to the team at ANYbotics.
 
 # Clone this repository and its dependencies
 
-git clone --recurse-submodules https://github.com/robotika/grid_map_py
+git clone https://github.com/robotika/grid_map_py
 
 cd grid_map_py
 
