@@ -10,7 +10,7 @@ sources = [
     '../grid_map/grid_map_core/src/BufferRegion.cpp',
     '../grid_map/grid_map_core/src/SubmapGeometry.cpp',
     '../grid_map/grid_map_core/src/Polygon.cpp',
-    '../grid_map/grid_map_core/src/BicubicInterpolation.cpp',
+    '../grid_map/grid_map_core/src/CubicInterpolation.cpp',
     '../grid_map/grid_map_core/src/iterators/GridMapIterator.cpp',
     '../grid_map/grid_map_core/src/iterators/SubmapIterator.cpp',
     '../grid_map/grid_map_core/src/iterators/CircleIterator.cpp',
