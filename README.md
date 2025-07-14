@@ -13,6 +13,7 @@ This allows for the creation, manipulation, and processing of 2D grid maps with 
 All credit for the core library goes to the team at ANYbotics.
 
 * **Original Repository:** [github.com/ANYbotics/grid_map](https://github.com/ANYbotics/grid_map)
+* dependency [gitlab.com/libeigen/eigen](https://gitlab.com/libeigen/eigen)
 
 
 
