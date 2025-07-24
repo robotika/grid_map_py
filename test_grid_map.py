@@ -1,27 +1,47 @@
 import numpy as np
 import grid_map_py as gm
+from scipy.spatial.transform import Rotation
 
-# 1. Create a map and add an initial layer
+# 1. Setup the map
 my_map = gm.GridMap()
-my_map.set_geometry(length=np.array([1.2, 0.8]), resolution=0.1)
-initial_image = np.full(my_map.get_size(), 1000, dtype=np.uint16) # 1 meter everywhere
-my_map.set_layer_from_numpy("elevation", initial_image)
+my_map.set_geometry(length=np.array([10.0, 10.0]), resolution=0.1, position=np.array([0.0, 0.0]))
+my_map.set_frame_id("world")
 
-# 2. GET a layer as a NumPy array
-elevation_data = my_map.get_layer_as_numpy("elevation")
-print("Original data type:", elevation_data.dtype)
-print("Value at (0, 0):", elevation_data[0, 0])
+# 2. Define camera parameters
+# A simple dummy depth image (e.g., 64x48)
+depth_image = np.full((48, 64), 2000, dtype=np.uint16) # A flat wall 2 meters away
+depth_image[20:30, 30:40] = 1000 # A closer box 1 meter away
 
-# 3. MODIFY the NumPy array in Python
-# Let's set the center of the map to be higher (2000 mm = 2m)
-center_row, center_col = elevation_data.shape[0] // 2, elevation_data.shape[1] // 2
-elevation_data[center_row-2:center_row+2, center_col-2:center_col+2] = 2000
+# Camera intrinsics (fx, fy, cx, cy)
+intrinsics = np.array([
+    [50.0, 0.0,  32.0],
+    [0.0,  50.0, 24.0],
+    [0.0,  0.0,  1.0]
+])
 
-# 4. UPDATE the layer in the grid map with the modified data
-# Note: our function expects uint16, but our get_layer returns float32. We must cast it back.
-my_map.set_layer_from_numpy("elevation", (elevation_data * 1000).astype(np.uint16))
+# Camera pose: looking at the center of the map from 5m away on the y-axis
+# The camera looks along its -Z axis. To look at the origin from +Y,
+# we position it at (0, 5, 0) and rotate it -90 degrees around the X-axis.
+cam_pos = [0, 5, 0]
+cam_rot = Rotation.from_euler('x', -90, degrees=True).as_matrix()
 
-# 5. VERIFY the change by getting the data again
-updated_elevation_data = my_map.get_layer_as_numpy("elevation")
-print("Updated value at center:", updated_elevation_data[center_row, center_col])
-print("Original value at (0,0) is unchanged:", updated_elevation_data[0, 0])
+camera_pose = np.eye(4)
+camera_pose[:3, :3] = cam_rot
+camera_pose[:3, 3] = cam_pos
+
+# 3. Call the new function to update the map
+my_map.update_from_depth_image(
+    layer_name="elevation",
+    depth_image=depth_image,
+    camera_intrinsics=intrinsics,
+    camera_pose=camera_pose
+)
+
+# 4. (Optional) You can retrieve the layer to verify it
+# The map should now have elevation values around z=0, where the "wall" was projected.
+elevation_layer = my_map.get_layer_as_numpy("elevation")
+
+# Find where the map was updated (non-zero values)
+updated_points = elevation_layer[np.abs(elevation_layer) > 1e-6]
+print(f"Map updated with {len(updated_points)} points.")
+print(f"Sample elevation values: {updated_points[:5]}")
