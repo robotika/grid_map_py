@@ -17,15 +17,15 @@ intrinsics = np.array([
     [50.0, 0.0,  32.0],
     [0.0,  50.0, 24.0],
     [0.0,  0.0,  1.0]
-])
+], dtype=np.float64)
 
 # Camera pose: looking at the center of the map from 5m away on the y-axis
 # The camera looks along its -Z axis. To look at the origin from +Y,
 # we position it at (0, 5, 0) and rotate it -90 degrees around the X-axis.
 cam_pos = [0, 5, 0]
-cam_rot = Rotation.from_euler('x', -90, degrees=True).as_matrix()
+cam_rot = Rotation.from_euler('x', 90, degrees=True).as_matrix()
 
-camera_pose = np.eye(4)
+camera_pose = np.eye(4, dtype=np.float64)
 camera_pose[:3, :3] = cam_rot
 camera_pose[:3, 3] = cam_pos
 

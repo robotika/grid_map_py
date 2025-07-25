@@ -20,12 +20,14 @@ void update_from_depth_image(grid_map::GridMap& map,
                              const std::string& layer_name,
                              py::array_t<uint16_t, py::array::c_style | py::array::forcecast> depth_image,
                              const Eigen::Matrix3d& camera_intrinsics,
-                             const Eigen::Isometry3d& camera_pose) {
+                             const Eigen::Matrix4d& camera_pose_matrix) {
 
     py::buffer_info buf = depth_image.request();
     if (buf.ndim != 2) {
         throw std::runtime_error("Depth image must be 2-dimensional.");
     }
+
+    Eigen::Isometry3d camera_pose(camera_pose_matrix);
 
     if (!map.exists(layer_name)) {
         map.add(layer_name, 0.0); // Add layer with default value if it doesn't exist
