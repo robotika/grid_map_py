@@ -64,7 +64,8 @@ void update_from_depth_image(grid_map::GridMap& map,
             
             // If the point is within the map, set the elevation
             if (map.isInside(position)) {
-                map.atPosition(layer_name, position) = point_in_world.z();
+                if (map.atPosition(layer_name, position) < point_in_world.z())
+                    map.atPosition(layer_name, position) = point_in_world.z();
             }
         }
     }
