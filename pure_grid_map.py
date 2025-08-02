@@ -159,26 +159,74 @@ class PurePythonGridMap:
         map_max_x = self._position[0] + self._length[0] / 2.0
         map_min_y = self._position[1] - self._length[1] / 2.0
         map_max_y = self._position[1] + self._length[1] / 2.0
-        # Use strict inequality for max boundary to match C++ behavior
         return map_min_x <= world_x < map_max_x and map_min_y <= world_y < map_max_y
 
     def _world_to_grid_index(self, world_x: float, world_y: float) -> tuple[int, int]:
         """
         Converts world coordinates (x, y) to grid cell indices (row, col).
-        This method now mimics the exact logic from the C++ grid_map library.
         """
-        # Position relative to the map's center.
-        position_in_map_frame_x = world_x - self._position[0]
-        position_in_map_frame_y = world_y - self._position[1]
+        # Calculate offset from map center to bottom-left corner
+        offset_x = self._position[0] - self._length[0] / 2.0
+        offset_y = self._position[1] - self._length[1] / 2.0
 
-        # Half lengths of the map.
-        half_length_x = self._length[0] / 2.0
-        half_length_y = self._length[1] / 2.0
+        # Convert world coordinates to coordinates relative to bottom-left
+        relative_x = world_x - offset_x
+        relative_y = world_y - offset_y
 
-        # Calculate indices based on the C++ source code formula.
-        # This correctly maps world coordinates to array indices where (0,0) is top-left.
-        row_idx = int(round((half_length_y - position_in_map_frame_y) / self._resolution))
-        col_idx = int(round((half_length_x + position_in_map_frame_x) / self._resolution)) # Note the '+' for x-axis
+        # Convert relative coordinates to grid indices
+        col = int(relative_x / self._resolution)
+        row = int(relative_y / self._resolution) # Rows are typically Y-axis in image coordinates
+
+        # Invert row for typical image indexing (top-left is 0,0) if needed,
+        # but grid_map often uses bottom-left as origin (0,0) for its internal matrix.
+        # For consistency with grid_map's Eigen::Matrix, we will use (row, col) as (y_idx, x_idx)
+        # where y_idx increases upwards (from bottom of map) and x_idx increases rightwards.
+        # However, numpy imshow expects (row, col) where row increases downwards.
+        # Let's stick to grid_map's internal logic for now for consistency with C++ atPosition.
+        # grid_map::atPosition handles the internal indexing.
+        # For direct matrix access, we need to convert to (row, col) for numpy.
+        # grid_map's Matrix is column-major, but its atPosition handles internal indexing.
+        # For direct numpy indexing (row, col), we need to map world_y to row index and world_x to col index.
+        # grid_map's internal matrix is Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>
+        # where (row, col) corresponds to (y_index, x_index) in the map.
+        # For numpy, (row, col) means (height_index, width_index).
+        # So, row corresponds to y, col corresponds to x.
+
+        # Adjust for grid_map's internal indexing where (0,0) is bottom-left
+        # and rows increase upwards, cols increase rightwards.
+        # For a numpy array (row, col) where row is vertical, col is horizontal:
+        # row_idx = (world_y - map_min_y) / resolution
+        # col_idx = (world_x - map_min_x) / resolution
+
+        # grid_map's internal indexing: map.atPosition(layer_name, position)
+        # This function internally converts position to index.
+        # For direct numpy array access, we need to be careful.
+        # Let's use the internal logic of grid_map's atPosition by mimicking it.
+        # grid_map uses (row, col) where row is along Y, col is along X.
+        # It's usually (y_idx, x_idx) for Eigen matrix access.
+        # For numpy, it's (row_idx, col_idx).
+        # The internal C++ `atPosition` handles this. For our Python version,
+        # we'll use the direct index calculation.
+
+        # For numpy indexing, we assume (row, col) where row is vertical (y), col is horizontal (x)
+        # The origin (0,0) of the map is at its center.
+        # World X corresponds to column index, World Y corresponds to row index.
+        # The map's internal array is typically indexed from (0,0) at the top-left for visualization.
+        # However, grid_map's 'position' refers to the center, and its internal matrix
+        # is often accessed with (row, col) where row is y-axis and col is x-axis.
+
+        # Let's align with the numpy array indexing convention (row, col) where row is y, col is x
+        # and (0,0) is top-left.
+        # Map's top-left corner in world coordinates:
+        map_top_left_x = self._position[0] - self._length[0] / 2.0
+        map_top_left_y = self._position[1] + self._length[1] / 2.0 # Y increases upwards, so top is max Y
+
+        # Distance from top-left corner
+        dist_x = world_x - map_top_left_x
+        dist_y = map_top_left_y - world_y # Y-axis for rows increases downwards
+
+        row_idx = int(dist_y / self._resolution)
+        col_idx = int(dist_x / self._resolution)
 
         return row_idx, col_idx
 
@@ -224,6 +272,8 @@ class PurePythonGridMap:
 
         rows_img, cols_img = depth_image.shape
 
+        # Convert camera_pose matrix to a proper transformation object for easier use
+        # In C++, Eigen::Isometry3d handles this. Here we use scipy's Rotation and direct translation.
         rotation_matrix = camera_pose[:3, :3]
         translation_vector = camera_pose[:3, 3]
 
@@ -231,12 +281,15 @@ class PurePythonGridMap:
         for v in range(rows_img):
             for u in range(cols_img):
                 depth_mm = depth_image[v, u]
-                if depth_mm == 0: # Skip invalid depth pixels
+                if depth_mm == 0: # Skip invalid depth pixels (0 typically means no depth data)
                     continue
 
                 depth_m = float(depth_mm) / 1000.0
 
                 # Unproject pixel to a 3D point in the camera's frame
+                # P_camera_x = (u - cx) * Z_camera / fx
+                # P_camera_y = (v - cy) * Z_camera / fy
+                # P_camera_z = Z_camera
                 point_in_camera = np.array([
                     (float(u) - cx) * depth_m / fx,
                     (float(v) - cy) * depth_m / fy,
@@ -244,6 +297,7 @@ class PurePythonGridMap:
                 ])
 
                 # Transform the point from the camera's frame to the world frame
+                # P_world = R_world_camera * P_camera + T_world_camera
                 point_in_world = np.dot(rotation_matrix, point_in_camera) + translation_vector
 
                 world_x = point_in_world[0]
@@ -257,9 +311,20 @@ class PurePythonGridMap:
 
                     # Check if grid indices are valid
                     if self._is_valid_grid_index(row_idx, col_idx):
+                        # Update the elevation layer
+                        # In the C++ version, map.atPosition handles the indexing and updates.
+                        # Here, we directly update the NumPy array.
+                        # Note: grid_map uses a fusion strategy (e.g., averaging, taking min/max)
+                        # when multiple points fall into the same cell.
                         # This simple Python version just overwrites the value.
-                        # A more advanced version would handle fusion (averaging, etc.).
+                        # For more advanced fusion, you'd need to implement that logic here.
                         layer[row_idx, col_idx] = world_z
+                    # else:
+                    #     print(f"Point at ({world_x:.2f}, {world_y:.2f}) projected to invalid grid index ({row_idx}, {col_idx})")
+                # else:
+                #     print(f"Point at ({world_x:.2f}, {world_y:.2f}) is outside map boundaries.")
+
+        # print(f"Map layer '{layer_name}' updated from depth image.")
 
 
 # --- Example Usage ---
@@ -269,7 +334,7 @@ if __name__ == "__main__":
     # 1. Setup the map
     my_map = PurePythonGridMap()
     resolution = 0.1
-    length = np.array([15.0, 10.0]) # [length_x, length_y]
+    length = np.array([10.0, 10.0]) # [length_x, length_y]
     my_map.set_geometry(length=length, resolution=resolution, position=np.array([0.0, 0.0]))
     my_map.set_frame_id("world")
 
